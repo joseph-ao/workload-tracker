@@ -100,6 +100,15 @@ public class TaskService : ITaskService
         var task = await _context.Tasks.FindAsync(id);
         if (task == null) return false;
 
+        var changeRequests = _context.ChangeRequests.Where(r => r.TaskId == id);
+        _context.ChangeRequests.RemoveRange(changeRequests);
+
+        var acknowledgements = _context.TaskAcknowledgements.Where(a => a.TaskId == id);
+        _context.TaskAcknowledgements.RemoveRange(acknowledgements);
+
+        var histories = _context.TaskStatusHistories.Where(h => h.TaskId == id);
+        _context.TaskStatusHistories.RemoveRange(histories);
+
         _context.Tasks.Remove(task);
         await _context.SaveChangesAsync();
         return true;
