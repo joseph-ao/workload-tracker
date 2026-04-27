@@ -3,151 +3,171 @@ import { useAuth } from '../context/AuthContext';
 import { getChangeRequests, createChangeRequest, approveChangeRequest, rejectChangeRequest } from '../api/changeRequests';
 import { getTasks } from '../api/tasks';
 import type { ChangeRequest, Task } from '../types';
-import Navbar from '../components/Navbar';
+import Layout from '../components/Layout';
+
+const STATUS_BADGE: Record<string, string> = {
+    Pending:  'bg-amber-50 text-amber-700',
+    Approved: 'bg-emerald-50 text-emerald-700',
+    Rejected: 'bg-red-50 text-red-700',
+};
+
+type FilterKey = 'Pending' | 'Approved' | 'Rejected' | 'all';
 
 export default function ChangeRequestsPage() {
-    const { isTeamLeader, user } = useAuth();
+    const { isTeamLeader } = useAuth();
     const [requests, setRequests] = useState<ChangeRequest[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
-
-    // Form state for creating a new request
+    const [filter, setFilter] = useState<FilterKey>('Pending');
     const [taskId, setTaskId] = useState('');
-    const [newValue, setNewValue] = useState('Pending');
+    const [newValue, setNewValue] = useState('InProgress');
     const [submitting, setSubmitting] = useState(false);
+    const [toast, setToast] = useState<string | null>(null);
 
     useEffect(() => {
         Promise.all([getChangeRequests(), getTasks()])
-            .then(([reqs, tsks]) => {
-                setRequests(reqs);
-                setTasks(tsks);
-            })
+            .then(([r, t]) => { setRequests(r); setTasks(t); })
             .finally(() => setLoading(false));
     }, []);
 
+    useEffect(() => {
+        if (!toast) return;
+        const t = setTimeout(() => setToast(null), 2400);
+        return () => clearTimeout(t);
+    }, [toast]);
+
+    const visible = requests.filter(r => filter === 'all' || r.status === filter);
+    const pending = requests.filter(r => r.status === 'Pending').length;
+
     const handleCreate = async () => {
         if (!taskId) return;
-        const selectedTask = tasks.find(t => t.id === parseInt(taskId));
-        if (!selectedTask) return;
-
+        const selected = tasks.find(t => t.id === parseInt(taskId));
+        if (!selected) return;
         setSubmitting(true);
         try {
-            const newRequest = await createChangeRequest({
-                taskId: parseInt(taskId),
-                changeType: 'StatusChange',
-                oldValue: selectedTask.status,
-                newValue
-            });
-            setRequests([newRequest, ...requests]);
+            const r = await createChangeRequest({ taskId: parseInt(taskId), changeType: 'StatusChange', oldValue: selected.status, newValue });
+            setRequests(prev => [r, ...prev]);
             setTaskId('');
-        } finally {
-            setSubmitting(false);
-        }
+            setToast('Change request submitted');
+        } finally { setSubmitting(false); }
     };
 
     const handleApprove = async (id: number) => {
         await approveChangeRequest(id);
-        setRequests(requests.map(r => r.id === id ? { ...r, status: 'Approved' } : r));
+        setRequests(rs => rs.map(r => r.id === id ? { ...r, status: 'Approved' } : r));
+        setToast('Request approved');
     };
 
     const handleReject = async (id: number) => {
         await rejectChangeRequest(id);
-        setRequests(requests.map(r => r.id === id ? { ...r, status: 'Rejected' } : r));
+        setRequests(rs => rs.map(r => r.id === id ? { ...r, status: 'Rejected' } : r));
+        setToast('Request rejected');
     };
 
-    const getStatusColor = (status: string) => {
-        if (status === 'Approved') return 'bg-green-100 text-green-700';
-        if (status === 'Rejected') return 'bg-red-100 text-red-700';
-        return 'bg-yellow-100 text-yellow-700';
-    };
+    const FILTERS: [FilterKey, string][] = [['Pending', 'Pending'], ['Approved', 'Approved'], ['Rejected', 'Rejected'], ['all', 'All']];
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <Navbar />
-            <div className="max-w-4xl mx-auto px-6 py-8">
-                <h1 className="text-2xl font-bold text-gray-800 mb-6">Change Requests</h1>
+        <Layout title="Approvals">
+            <div className="flex items-end justify-between mb-6">
+                <div>
+                    <div className="text-xs text-zinc-400 font-medium mb-1">{pending} pending</div>
+                    <h2 className="text-[26px] font-semibold tracking-tight" style={{ letterSpacing: '-0.02em' }}>Change requests</h2>
+                </div>
+                <div className="flex bg-zinc-100 border border-zinc-200 rounded-md p-0.5 gap-0.5">
+                    {FILTERS.map(([k, l]) => (
+                        <button key={k} onClick={() => setFilter(k)}
+                                className={`px-3 py-1.5 rounded-sm text-[12.5px] font-medium transition ${filter === k ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}>
+                            {l}
+                        </button>
+                    ))}
+                </div>
+            </div>
 
-                {/* Create a new change request — only for Members */}
-                {!isTeamLeader() && (
-                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
-                        <h2 className="font-semibold text-gray-700 mb-4">Request a Status Change</h2>
-                        <div className="flex gap-3 flex-wrap">
-                            <select
-                                value={taskId}
-                                onChange={e => setTaskId(e.target.value)}
-                                className="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1"
-                            >
+            {/* Submit form for Members */}
+            {!isTeamLeader() && (
+                <div className="bg-white border border-zinc-200 rounded-xl p-5 mb-6 shadow-sm">
+                    <div className="text-sm font-semibold text-zinc-800 mb-4">Request a status change</div>
+                    <div className="flex gap-3 flex-wrap items-end">
+                        <div className="flex-1 min-w-48">
+                            <label className="block text-[12.5px] font-medium text-zinc-600 mb-1.5">Task</label>
+                            <select value={taskId} onChange={e => setTaskId(e.target.value)}
+                                    className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm outline-none focus:border-violet-500">
                                 <option value="">Select a task...</option>
-                                {tasks.map(t => (
-                                    <option key={t.id} value={t.id}>{t.title} (currently {t.status})</option>
-                                ))}
+                                {tasks.map(t => <option key={t.id} value={t.id}>{t.title} — {t.status}</option>)}
                             </select>
-                            <select
-                                value={newValue}
-                                onChange={e => setNewValue(e.target.value)}
-                                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                            >
+                        </div>
+                        <div>
+                            <label className="block text-[12.5px] font-medium text-zinc-600 mb-1.5">New status</label>
+                            <select value={newValue} onChange={e => setNewValue(e.target.value)}
+                                    className="border border-zinc-300 rounded-md px-3 py-2 text-sm outline-none focus:border-violet-500">
                                 <option value="Pending">Pending</option>
                                 <option value="InProgress">InProgress</option>
                                 <option value="Done">Done</option>
                             </select>
-                            <button
-                                onClick={handleCreate}
-                                disabled={submitting || !taskId}
-                                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-                            >
-                                {submitting ? 'Submitting...' : 'Submit Request'}
-                            </button>
                         </div>
+                        <button onClick={handleCreate} disabled={submitting || !taskId}
+                                className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 transition"
+                                style={{ background: 'oklch(0.52 0.18 295)' }}>
+                            {submitting ? 'Submitting...' : 'Submit request'}
+                        </button>
                     </div>
-                )}
+                </div>
+            )}
 
-                {/* List of all change requests */}
-                {loading ? (
-                    <p className="text-gray-500">Loading...</p>
-                ) : requests.length === 0 ? (
-                    <p className="text-gray-500">No change requests yet.</p>
-                ) : (
-                    <div className="space-y-3">
-                        {requests.map(req => (
-                            <div key={req.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                                <div className="flex items-start justify-between">
-                                    <div>
-                                        <p className="font-medium text-gray-800">{req.taskTitle}</p>
-                                        <p className="text-sm text-gray-500 mt-1">
-                                            Status change: <span className="font-medium">{req.oldValue}</span> → <span className="font-medium">{req.newValue}</span>
-                                        </p>
-                                        <p className="text-xs text-gray-400 mt-1">
-                                            {new Date(req.createdAt).toLocaleDateString()}
-                                        </p>
+            {/* Cards */}
+            {loading ? (
+                <div className="text-sm text-zinc-400 p-8">Loading...</div>
+            ) : visible.length === 0 ? (
+                <div className="bg-white border border-zinc-200 rounded-xl p-14 text-center shadow-sm">
+                    <div className="w-10 h-10 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-400 text-lg mx-auto mb-3">✉</div>
+                    <div className="font-medium text-zinc-600">No {filter === 'all' ? '' : filter.toLowerCase()} requests</div>
+                    <div className="text-xs text-zinc-400 mt-1">You're all caught up.</div>
+                </div>
+            ) : (
+                <div className="flex flex-col gap-3">
+                    {visible.map(req => (
+                        <div key={req.id} className="bg-white border border-zinc-200 rounded-xl p-5 shadow-sm">
+                            <div className="flex items-start gap-4">
+                                <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600 flex-shrink-0 text-sm">⇄</div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-semibold text-zinc-900">{req.taskTitle}</span>
+                                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_BADGE[req.status] ?? 'bg-zinc-100 text-zinc-600'}`}>{req.status}</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusColor(req.status)}`}>
-                      {req.status}
-                    </span>
-                                        {isTeamLeader() && req.status === 'Pending' && (
-                                            <>
-                                                <button
-                                                    onClick={() => handleApprove(req.id)}
-                                                    className="text-xs bg-green-50 text-green-600 px-3 py-1 rounded-lg hover:bg-green-100"
-                                                >
-                                                    Approve
-                                                </button>
-                                                <button
-                                                    onClick={() => handleReject(req.id)}
-                                                    className="text-xs bg-red-50 text-red-600 px-3 py-1 rounded-lg hover:bg-red-100"
-                                                >
-                                                    Reject
-                                                </button>
-                                            </>
-                                        )}
+                                    <div className="flex items-center gap-2 mt-2 text-sm text-zinc-500">
+                                        <span>Status change</span>
+                                        <span className="text-zinc-300">·</span>
+                                        <span className="mono text-xs font-medium text-zinc-600">{req.oldValue}</span>
+                                        <span className="text-zinc-300">→</span>
+                                        <span className="mono text-xs font-semibold text-zinc-900">{req.newValue}</span>
+                                    </div>
+                                    <div className="text-xs text-zinc-400 mt-2">
+                                        Requested {new Date(req.createdAt).toLocaleDateString()}
                                     </div>
                                 </div>
+                                {isTeamLeader() && req.status === 'Pending' && (
+                                    <div className="flex gap-2 flex-shrink-0">
+                                        <button onClick={() => handleReject(req.id)}
+                                                className="px-3 py-1.5 rounded-md border border-zinc-300 text-xs font-medium hover:bg-zinc-50 transition">
+                                            ✕ Reject
+                                        </button>
+                                        <button onClick={() => handleApprove(req.id)}
+                                                className="px-3 py-1.5 rounded-md text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-700 transition">
+                                            ✓ Approve
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {toast && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-[13px] font-medium px-4 py-2.5 rounded-lg shadow-xl z-50 flex items-center gap-2">
+                    ✓ {toast}
+                </div>
+            )}
+        </Layout>
     );
 }
