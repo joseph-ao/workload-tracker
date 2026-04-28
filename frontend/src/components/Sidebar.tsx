@@ -1,18 +1,23 @@
 ﻿import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const NAV = [
-    { key: '/workload', label: 'Workload' },
-    { key: '/dashboard', label: 'Tasks' },
+const LEADER_NAV = [
+    { key: '/workload',        label: 'Workload' },
+    { key: '/dashboard',       label: 'Tasks' },
     { key: '/change-requests', label: 'Approvals' },
 ];
 
+const MEMBER_NAV = [
+    { key: '/my-tasks', label: 'My Tasks' },
+];
+
 export default function Sidebar() {
-    const { user, logout } = useAuth();
+    const { user, logout, isTeamLeader } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
     const initials = user?.fullName.split(' ').map(n => n[0]).join('').toUpperCase() ?? '?';
+    const nav = isTeamLeader() ? LEADER_NAV : MEMBER_NAV;
 
     return (
         <aside className="w-[232px] bg-white border-r border-zinc-200 flex flex-col p-[18px_14px] sticky top-0 h-screen gap-1">
@@ -28,7 +33,7 @@ export default function Sidebar() {
                 Workspace
             </div>
 
-            {NAV.map(n => {
+            {nav.map(n => {
                 const active = location.pathname.startsWith(n.key);
                 return (
                     <button key={n.key} onClick={() => navigate(n.key)}
